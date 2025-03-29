@@ -42,7 +42,7 @@ i32 rand_between(i32 min, i32 max){
    return min + rand() / (RAND_MAX / (max - min + 1) + 1);
 }
 
-typedef void (*matrix_mul_f)(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P);
+typedef void (*matrix_mul_f)(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P);
 
 void matrix_setzero(f32 *A, u32 M, u32 N) {
     memset(A, 0, M * N * sizeof(f32));
@@ -56,7 +56,7 @@ void matrix_setrand(f32 *A, u32 M, u32 N) {
     }
 }
 
-bool matrix_eq(f32 *A, f32 *B, u32 M, u32 N) {
+bool matrix_eq(const f32 *A, const f32 *B, u32 M, u32 N) {
     for (u32 m = 0; m < M; m++) {
         for (u32 n = 0; n < N; n++) {
             if (*(A + m * N + n) != *(B + m * N + n)) {
@@ -67,7 +67,7 @@ bool matrix_eq(f32 *A, f32 *B, u32 M, u32 N) {
     return true;
 }
 
-void matrix_transpose(f32 *A, f32 *B, u32 M, u32 N) {
+void matrix_transpose(const f32 *A, f32 *B, u32 M, u32 N) {
     for (u32 m = 0; m < M; m++) {
         for (u32 n = 0; n < N; n++) {
             *(B + n * M + m) = *(A + m * N + n);
@@ -75,7 +75,7 @@ void matrix_transpose(f32 *A, f32 *B, u32 M, u32 N) {
     }
 }
 
-void matrix_print(f32 *A, u32 M, u32 N) {
+void matrix_print(const f32 *A, u32 M, u32 N) {
     for (u32 m = 0; m < M; m++) {
         for (u32 n = 0; n < N; n++) {
             printf("%.2f ", *(A + m * N + n));
@@ -84,7 +84,7 @@ void matrix_print(f32 *A, u32 M, u32 N) {
     }
 }
 
-void matrix_mul(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
+void matrix_mul(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     for (u32 m = 0; m < M; m++) {
         for (u32 p = 0; p < P; p++) {
             f32 sum = 0;
@@ -96,7 +96,7 @@ void matrix_mul(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-void matrix_mul_transposed(f32 *A, f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
+void matrix_mul_transposed(const f32 *A, const f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
     for (u32 m = 0; m < M; m++) {
         for (u32 p = 0; p < P; p++) {
             f32 sum = 0;
@@ -108,16 +108,16 @@ void matrix_mul_transposed(f32 *A, f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-void matrix_mul_cacheline(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
+void matrix_mul_cacheline(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     for (u32 m = 0; m < M; m += N_F32_IN_CL) {
         for (u32 p = 0; p < P; p += N_F32_IN_CL) {
             for (u32 n = 0; n < N; n += N_F32_IN_CL) {
 
                 f32 * restrict c_ptr = C + m * P + p;
-                f32 * restrict a_ptr = A + m * N + n;
+                const f32 * restrict a_ptr = A + m * N + n;
                 for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
 
-                    f32 * restrict b_ptr = B + n * P + p;
+                    const f32 * restrict b_ptr = B + n * P + p;
                     for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
 
                         for (u32 p2 = 0; p2 < N_F32_IN_CL && p + p2 < P; p2++) {
@@ -135,24 +135,23 @@ void matrix_mul_cacheline(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-void matrix_mul_sse(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
-    __m128 _a, _b, _c;
+void matrix_mul_sse(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     for (u32 m = 0; m < M; m += N_F32_IN_CL) {
         for (u32 p = 0; p < P; p += N_F32_IN_CL) {
             for (u32 n = 0; n < N; n += N_F32_IN_CL) {
 
                 f32 * restrict c_ptr = C + m * P + p;
-                f32 * restrict a_ptr = A + m * N + n;
+                const f32 * restrict a_ptr = A + m * N + n;
                 for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
 
-                    f32 * restrict b_ptr = B + n * P + p;
+                    const f32 * restrict b_ptr = B + n * P + p;
                     for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
 
-                        _a = _mm_set1_ps(*(a_ptr + n2));
+                        const __m128 _a = _mm_set1_ps(*(a_ptr + n2));
                         u32 p2 = 0;
                         for (; p2 + 3 < N_F32_IN_CL && p + p2 + 3 < P; p2 += 4) {
-                            _b = _mm_loadu_ps(b_ptr + p2);
-                            _c = _mm_loadu_ps(c_ptr + p2);
+                            const __m128 _b = _mm_loadu_ps(b_ptr + p2);
+                            const __m128 _c = _mm_loadu_ps(c_ptr + p2);
                             _mm_storeu_ps(c_ptr + p2, _mm_add_ps(_c, _mm_mul_ps(_a, _b)));
                         }
 
@@ -171,24 +170,23 @@ void matrix_mul_sse(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-void matrix_mul_avx(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
-    __m256 _a, _b, _c;
+void matrix_mul_avx(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     for (u32 m = 0; m < M; m += N_F32_IN_CL) {
         for (u32 p = 0; p < P; p += N_F32_IN_CL) {
             for (u32 n = 0; n < N; n += N_F32_IN_CL) {
 
                 f32 * restrict c_ptr = C + m * P + p;
-                f32 * restrict a_ptr = A + m * N + n;
+                const f32 * restrict a_ptr = A + m * N + n;
                 for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
 
-                    f32 * restrict b_ptr = B + n * P + p;
+                    const f32 * restrict b_ptr = B + n * P + p;
                     for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
 
-                        _a = _mm256_set1_ps(*(a_ptr + n2));
+                        const __m256 _a = _mm256_set1_ps(*(a_ptr + n2));
                         u32 p2 = 0;
                         for (; p2 + 7 < N_F32_IN_CL && p + p2 + 7 < P; p2 += 8) {
-                            _b = _mm256_loadu_ps(b_ptr + p2);
-                            _c = _mm256_loadu_ps(c_ptr + p2);
+                            const __m256 _b = _mm256_loadu_ps(b_ptr + p2);
+                            const __m256 _c = _mm256_loadu_ps(c_ptr + p2);
                             _mm256_storeu_ps(c_ptr + p2, _mm256_add_ps(_c, _mm256_mul_ps(_a, _b)));
                         }
 
@@ -207,7 +205,7 @@ void matrix_mul_avx(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-f64 benchmark_matrix_mul(f32 *A, f32 *B, f32 *C, u32 M, u32 N, u32 P, u32 iterations, matrix_mul_f mul) {
+f64 benchmark_matrix_mul(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P, u32 iterations, matrix_mul_f mul) {
     struct timespec start, end;
     f64 total_ns = 0.;
 
@@ -259,27 +257,27 @@ int main(void) {
     matrix_setzero(C, M, P);
 
     {
-        f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul);
+        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul);
         printf("Average multiplication time (original):       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
-        f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed);
+        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed);
         printf("Average multiplication time (pre-transposed): %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
-        f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_cacheline);
+        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_cacheline);
         printf("Average multiplication time (sub-matrix):     %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
-        f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_sse);
+        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_sse);
         printf("Average multiplication time (sse):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
-        f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_avx);
+        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_avx);
         printf("Average multiplication time (avx):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
