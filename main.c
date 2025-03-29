@@ -143,6 +143,7 @@ void matrix_mul_sse(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
                 f32 * restrict c_ptr = C + m * P + p;
                 const f32 * restrict a_ptr = A + m * N + n;
                 for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
+                    //_mm_prefetch(a_ptr + N, _MM_HINT_NTA);
 
                     const f32 * restrict b_ptr = B + n * P + p;
                     for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
@@ -178,6 +179,7 @@ void matrix_mul_avx(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
                 f32 * restrict c_ptr = C + m * P + p;
                 const f32 * restrict a_ptr = A + m * N + n;
                 for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
+                    //_mm_prefetch(a_ptr + N, _MM_HINT_NTA);
 
                     const f32 * restrict b_ptr = B + n * P + p;
                     for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
