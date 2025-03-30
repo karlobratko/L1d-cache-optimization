@@ -235,8 +235,8 @@ f64 benchmark_matrix_mul(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P
 int main(void) {
     srand(time(NULL));
 
-    u32 iterations = 1000;
-    u32 M = 131, N = 131, P = 131;
+    const u32 iterations = 1000;
+    const u32 M = 131, N = 131, P = 131;
 
     printf("M = %u, N = %u, P = %u\n", M, N, P);
     printf("Iterations: %u\n", iterations);
