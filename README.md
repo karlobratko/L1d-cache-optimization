@@ -28,13 +28,14 @@ Each implementation builds upon the previous one to demonstrate the cumulative e
 - Comprehensive benchmarking to measure impact of each cache optimization
 - GCC cleanup attribute for automatic resource management
 
-## Build Requirements
+## Building and Running
+
+### Build Requirements
 
 - GCC compiler with GNU11 support
 - POSIX-compliant system
 - CPU with SSE and AVX instruction set support
-
-## Building and Running
+- Python 3 Interpreter for visualizations
 
 ### Command Line Options
 
