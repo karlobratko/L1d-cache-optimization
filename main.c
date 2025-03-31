@@ -23,7 +23,7 @@ typedef double f64;
 #define CACHE_LINE_SIZE 64
 #endif
 
-#define N_F32_IN_CL (CACHE_LINE_SIZE / sizeof(f32))
+#define N_F32_PER_CACHE_LINE (CACHE_LINE_SIZE / sizeof(f32))
 
 #define MS_PER_S   1000
 #define US_PER_S  (1000 * MS_PER_S)
@@ -109,20 +109,49 @@ void matrix_mul_transposed(const f32 *A, const f32 *BT, f32 *C, u32 M, u32 N, u3
 }
 
 void matrix_mul_cacheline(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
-    for (u32 m = 0; m < M; m += N_F32_IN_CL) {
-        for (u32 p = 0; p < P; p += N_F32_IN_CL) {
-            for (u32 n = 0; n < N; n += N_F32_IN_CL) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
 
                 f32 * restrict c_ptr = C + m * P + p;
                 const f32 * restrict a_ptr = A + m * N + n;
-                for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
 
                     const f32 * restrict b_ptr = B + n * P + p;
-                    for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
+                    for (u32 n2 = 0; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
 
-                        for (u32 p2 = 0; p2 < N_F32_IN_CL && p + p2 < P; p2++) {
+                        for (u32 p2 = 0; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
                             *(c_ptr + p2) += *(a_ptr + n2) * *(b_ptr + p2);
                         }
+
+                        b_ptr += P;
+                    }
+
+                    a_ptr += N;
+                    c_ptr += P;
+                }
+            }
+        }
+    }
+}
+
+void matrix_mul_transposed_cacheline(const f32 *A, const f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
+
+                f32 * restrict c_ptr = C + m * P + p;
+                const f32 * restrict a_ptr = A + m * N + n;
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
+
+                    const f32 * restrict b_ptr = BT + p * N + n;
+                    for (u32 p2 = 0; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
+
+                        f32 sum = 0.f;
+                        for (u32 n2 = 0; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
+                            sum += *(a_ptr + n2) * *(b_ptr + n2);
+                        }
+                        *(c_ptr + p2) = sum;
 
                         b_ptr += P;
                     }
@@ -136,27 +165,26 @@ void matrix_mul_cacheline(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 
 }
 
 void matrix_mul_sse(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
-    for (u32 m = 0; m < M; m += N_F32_IN_CL) {
-        for (u32 p = 0; p < P; p += N_F32_IN_CL) {
-            for (u32 n = 0; n < N; n += N_F32_IN_CL) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
 
                 f32 * restrict c_ptr = C + m * P + p;
                 const f32 * restrict a_ptr = A + m * N + n;
-                for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
-                    //_mm_prefetch(a_ptr + N, _MM_HINT_NTA);
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
 
                     const f32 * restrict b_ptr = B + n * P + p;
-                    for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
+                    for (u32 n2 = 0; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
 
                         const __m128 _a = _mm_set1_ps(*(a_ptr + n2));
                         u32 p2 = 0;
-                        for (; p2 + 3 < N_F32_IN_CL && p + p2 + 3 < P; p2 += 4) {
+                        for (; p2 + 3 < N_F32_PER_CACHE_LINE && p + p2 + 3 < P; p2 += 4) {
                             const __m128 _b = _mm_loadu_ps(b_ptr + p2);
                             const __m128 _c = _mm_loadu_ps(c_ptr + p2);
                             _mm_storeu_ps(c_ptr + p2, _mm_add_ps(_c, _mm_mul_ps(_a, _b)));
                         }
 
-                        for (; p2 < N_F32_IN_CL && p + p2 < P; p2++) {
+                        for (; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
                             *(c_ptr + p2) += *(a_ptr + n2) * *(b_ptr + p2);
                         }
 
@@ -171,30 +199,117 @@ void matrix_mul_sse(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
     }
 }
 
-void matrix_mul_avx(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
-    for (u32 m = 0; m < M; m += N_F32_IN_CL) {
-        for (u32 p = 0; p < P; p += N_F32_IN_CL) {
-            for (u32 n = 0; n < N; n += N_F32_IN_CL) {
+void matrix_mul_transposed_sse(const f32 *A, const f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
 
                 f32 * restrict c_ptr = C + m * P + p;
                 const f32 * restrict a_ptr = A + m * N + n;
-                for (u32 m2 = 0; m2 < N_F32_IN_CL && m + m2 < M; m2++) {
-                    //_mm_prefetch(a_ptr + N, _MM_HINT_NTA);
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
+
+                    const f32 * restrict b_ptr = BT + n * P + p;
+                    for (u32 p2 = 0; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
+
+                        f32 sum = 0.f;
+                        __m128 _sum = _mm_setzero_ps();
+
+                        u32 n2 = 0;
+                        for (; n2 + 3 < N_F32_PER_CACHE_LINE && n + n2 + 3 < N; n2 += 4) {
+                            const __m128 _a = _mm_loadu_ps(a_ptr + n2);
+                            const __m128 _b = _mm_loadu_ps(b_ptr + n2);
+
+                            _sum = _mm_add_ps(_sum, _mm_mul_ps(_a, _b));
+                        }
+
+                        for (; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
+                            sum += *(a_ptr + n2) * *(b_ptr + n2);
+                        }
+
+                        _sum = _mm_hadd_ps(_sum, _sum);
+                        _sum = _mm_hadd_ps(_sum, _sum);
+                        *(c_ptr + p2) = sum + _mm_cvtss_f32(_sum);
+
+                        b_ptr += P;
+                    }
+
+                    a_ptr += N;
+                    c_ptr += P;
+                }
+            }
+        }
+    }
+}
+
+void matrix_mul_avx(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
+
+                f32 * restrict c_ptr = C + m * P + p;
+                const f32 * restrict a_ptr = A + m * N + n;
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
 
                     const f32 * restrict b_ptr = B + n * P + p;
-                    for (u32 n2 = 0; n2 < N_F32_IN_CL && n + n2 < N; n2++) {
+                    for (u32 n2 = 0; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
 
                         const __m256 _a = _mm256_set1_ps(*(a_ptr + n2));
                         u32 p2 = 0;
-                        for (; p2 + 7 < N_F32_IN_CL && p + p2 + 7 < P; p2 += 8) {
+                        for (; p2 + 7 < N_F32_PER_CACHE_LINE && p + p2 + 7 < P; p2 += 8) {
                             const __m256 _b = _mm256_loadu_ps(b_ptr + p2);
                             const __m256 _c = _mm256_loadu_ps(c_ptr + p2);
                             _mm256_storeu_ps(c_ptr + p2, _mm256_add_ps(_c, _mm256_mul_ps(_a, _b)));
                         }
 
-                        for (; p2 < N_F32_IN_CL && p + p2 < P; p2++) {
+                        for (; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
                             *(c_ptr + p2) += *(a_ptr + n2) * *(b_ptr + p2);
                         }
+
+                        b_ptr += P;
+                    }
+
+                    a_ptr += N;
+                    c_ptr += P;
+                }
+            }
+        }
+    }
+}
+
+void matrix_mul_transposed_avx(const f32 *A, const f32 *BT, f32 *C, u32 M, u32 N, u32 P) {
+    for (u32 m = 0; m < M; m += N_F32_PER_CACHE_LINE) {
+        for (u32 p = 0; p < P; p += N_F32_PER_CACHE_LINE) {
+            for (u32 n = 0; n < N; n += N_F32_PER_CACHE_LINE) {
+
+                f32 * restrict c_ptr = C + m * P + p;
+                const f32 * restrict a_ptr = A + m * N + n;
+                for (u32 m2 = 0; m2 < N_F32_PER_CACHE_LINE && m + m2 < M; m2++) {
+
+                    const f32 * restrict b_ptr = BT + n * P + p;
+                    for (u32 p2 = 0; p2 < N_F32_PER_CACHE_LINE && p + p2 < P; p2++) {
+
+                        f32 sum = 0.f;
+                        __m256 _sum256 = _mm256_setzero_ps();
+
+                        u32 n2 = 0;
+                        for (; n2 + 7 < N_F32_PER_CACHE_LINE && n + n2 + 7 < N; n2 += 8) {
+                            const __m256 _a = _mm256_loadu_ps(a_ptr + n2);
+                            const __m256 _b = _mm256_loadu_ps(b_ptr + n2);
+
+                            _sum256 = _mm256_add_ps(_sum256, _mm256_mul_ps(_a, _b));
+                        }
+
+                        for (; n2 < N_F32_PER_CACHE_LINE && n + n2 < N; n2++) {
+                            sum += *(a_ptr + n2) * *(b_ptr + n2);
+                        }
+
+                        _sum256 = _mm256_hadd_ps(_sum256, _sum256);
+                        _sum256 = _mm256_hadd_ps(_sum256, _sum256);
+
+                        const __m128 low  = _mm256_extractf128_ps(_sum256, 0);
+                        const __m128 high = _mm256_extractf128_ps(_sum256, 1);
+
+                        *(c_ptr + p2) = sum + _mm_cvtss_f32(_mm_add_ps(low, high));
 
                         b_ptr += P;
                     }
@@ -236,7 +351,7 @@ int main(void) {
     srand(time(NULL));
 
     const u32 iterations = 1000;
-    const u32 M = 131, N = 131, P = 131;
+    const u32 M = 257, N = 257, P = 257;
 
     printf("M = %u, N = %u, P = %u\n", M, N, P);
     printf("Iterations: %u\n", iterations);
@@ -260,27 +375,42 @@ int main(void) {
 
     {
         const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul);
-        printf("Average multiplication time (original):       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+        printf("Average multiplication time (original):                  %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
         const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed);
-        printf("Average multiplication time (pre-transposed): %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+        printf("Average multiplication time (pre-transposed):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
         const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_cacheline);
-        printf("Average multiplication time (sub-matrix):     %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+        printf("Average multiplication time (sub-matrix):                %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+    }
+
+    {
+        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_cacheline);
+        printf("Average multiplication time (pre-transposed sub-matrix): %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
         const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_sse);
-        printf("Average multiplication time (sse):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+        printf("Average multiplication time (sse):                       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+    }
+
+    {
+        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_sse);
+        printf("Average multiplication time (sse pre-transposed):        %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     {
         const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_avx);
-        printf("Average multiplication time (avx):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+        printf("Average multiplication time (avx):                       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
+    }
+
+    {
+        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_avx);
+        printf("Average multiplication time (avx pre-transposed):        %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
     }
 
     return EXIT_SUCCESS;
