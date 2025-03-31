@@ -36,23 +36,106 @@ Each implementation builds upon the previous one to demonstrate the cumulative e
 
 ## Building and Running
 
-Build the project with:
+### Command Line Options
+
+#### C Program
+
+```
+./mm -o [output_csv_file]
+```
+
+- If you provide an output filename, benchmark results will be written to that CSV file
+- If you don't provide a filename, results will only be displayed on the console
+
+#### Python Visualization
+
+Before running Python script make sure to install dependencies:
+
+```
+pip install matplotlib pandas seaborn numpy
+```
+
+After that run visualization script with:
+
+
+```
+python3 visualize.py -i [input_csv_file] -o [output_basename]
+```
+
+- If you provide an input CSV filename, the script will read data from that file
+- Output files will be named based on the input filename (e.g., `mm-data-performance.png` and `mm-data-speedup.png`) or basename defined with `-o` argument
+
+### Using the Makefile Targets
+
+The Makefile provides several convenient targets that handle the CSV filename:
+
+#### Basic Usage
 
 ```bash
+# Just compile the program
 make
-```
 
-Run the benchmark with:
-
-```bash
+# Run benchmarks and display results on console
 make run
+
+# Run benchmarks and save to default CSV file (mm-data.csv)
+make run-csv
+
+# Visualize data from the default CSV file
+make visualize
+
+# Run benchmarks, save to CSV, and create visualizations
+make plot
 ```
 
-For optimal benchmarking performance (high priority, CPU pinning, requires sudo privilege):
+#### High-Priority Execution
 
 ```bash
+# Run with high priority settings (for more accurate benchmarks)
 make run-priority
+
+# Run with high priority settings and save to default CSV file (for more accurate benchmarks)
+make run-csv-priority
+
+# Run benchmarks with high priority and generate visualizations
+make plot-priority
 ```
+
+#### Cleanup
+
+```bash
+# Remove all generated files
+make clean
+```
+
+### CSV File Format
+
+The CSV file should have the following columns:
+- `implementation`: Name of the implementation (e.g., "naive", "sse", etc.)
+- `matrix_size`: Size of the matrix (N where the matrix is N×N×N)
+- `duration_ns`: Duration per iteration in nanoseconds (will be automatically converted to milliseconds)
+
+Example:
+```
+implementation,matrix_size,duration_ns
+naive,32,12345678
+naive,64,98765432
+sse,32,1234567
+sse,64,9876543
+```
+
+### Visualizations
+
+The Python script creates two charts based on your data:
+
+1. **Performance Chart**: Shows execution time vs. matrix size for all implementations
+   - Saved as `[basename]-performance.png` and `[basename]-performance.pdf`
+
+2. **Speedup Chart**: Shows the speedup factor relative to the naive implementation
+   - Saved as `[basename]-speedup.png` and `[basename]-speedup.pdf`
+   - Only created if the data includes the "naive" implementation
+
+The `basename` is derived from the input CSV filename (without extension) or from argument directly.
 
 ## Technical Details
 

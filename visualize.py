@@ -173,7 +173,7 @@ def main():
 
     plt.tight_layout()
     plt.subplots_adjust(right=0.85)
-    plt.savefig(f'{output_base}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'{output_base}-performance.png', dpi=300, bbox_inches='tight')
 
     if 'naive' in df['implementation'].unique():
         plt.figure(figsize=(12, 6))
