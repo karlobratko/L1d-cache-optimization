@@ -6,10 +6,15 @@
 #include <stdbool.h>
 #include <immintrin.h>
 
-static_assert(sizeof(int) == 4, "sizeof(int) != 4");
+typedef const char *cstr;
 
-typedef int          i32;
-typedef unsigned int u32;
+static_assert(sizeof(char) == 1, "sizeof(char) != 1");
+static_assert(sizeof(int)  == 4, "sizeof(int) != 4");
+
+typedef char          i8;
+typedef unsigned char u8;
+typedef int           i32;
+typedef unsigned int  u32;
 
 static_assert(sizeof(float)  == 4, "sizeof(float) != 4" );
 static_assert(sizeof(double) == 8, "sizeof(double) != 8");
@@ -36,6 +41,14 @@ typedef double f64;
 void defer_free(void *ptr) {
     void **pptr = (void **)ptr;
     free(*pptr);
+}
+
+void defer_fclose(void *ptr) {
+    FILE **pptr = (FILE **)ptr;
+
+    if (*pptr != NULL) {
+        free(*pptr);
+    }
 }
 
 i32 rand_between(i32 min, i32 max){
@@ -344,74 +357,128 @@ f64 benchmark_matrix_mul(const f32 *A, const f32 *B, f32 *C, u32 M, u32 N, u32 P
         total_ns += elapsed_ns;
     }
 
-    return total_ns / iterations;
+    return total_ns;
 }
 
-int main(void) {
+#define MAX_FILENAME_LENGTH 256
+
+void print_usage(cstr target) {
+    printf("Usage: %s [options]\n", target);
+    printf("Options:\n");
+    printf("  --output FILE | -o FILE     Set output filename (default: output.csv)\n");
+}
+
+void parse_args(const cstr *argv, i32 argc, cstr *filename) {
+    const cstr target = argv[0];
+
+    for (i32 i = 1; i < argc; i++) {
+        if ((strcmp("-o", argv[i]) == 0 || strcmp("--output", argv[i]) == 0) && i + 1 < argc) {
+            *filename = argv[i + 1];
+            i++;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            print_usage(target);
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+struct impl_descriptor {
+    matrix_mul_f func;
+    cstr name;
+    bool uses_transposed;
+};
+
+void benchmark_matrix_mul_impls(cstr filename) {
+    FILE *file defer(defer_fclose) = NULL;
+
+    if (filename != NULL) {
+        file = fopen(filename, "w");
+        assert(file != NULL && "Failed to open CSV file.");
+    }
+
+    if (file != NULL) {
+        fprintf(file, "implementation,matrix_size,duration_ns\n");
+    }
+
+    const u32 sizes[] = {32, 64, 96, 128, 192, 256, 384, 512, 1024};
+    const u32 num_sizes = sizeof(sizes) / sizeof(sizes[0]);
+
+    const struct impl_descriptor implementations[] = {
+        {matrix_mul,                      "naive",                false},
+        {matrix_mul_transposed,           "trans_naive",          true},
+        {matrix_mul_cacheline,            "cacheline",            false},
+        {matrix_mul_transposed_cacheline, "trans_cacheline",      true},
+        {matrix_mul_sse,                  "sse",                  false},
+        {matrix_mul_transposed_sse,       "trans_sse",            true},
+        {matrix_mul_avx,                  "avx",                  false},
+        {matrix_mul_transposed_avx,       "trans_avx",            true}
+    };
+    const u32 num_impls = sizeof(implementations) / sizeof(implementations[0]);
+
+    for (u32 impl_i = 0; impl_i < num_impls; impl_i++) {
+        const struct impl_descriptor implementation = implementations[impl_i];
+        printf("Benchmarking %s implementation...\n\n", implementation.name);
+
+        for (u32 size_i = 0; size_i < num_sizes; size_i++) {
+            const u32 size = sizes[size_i];
+
+            const u32 M = size, N = size, P = size;
+            printf("  Matrix sizes: %ux%u\n", size, size);
+
+            f32 *A  defer(defer_free),
+                *B  defer(defer_free),
+                *BT defer(defer_free),
+                *C  defer(defer_free);
+
+            assert(posix_memalign((void **)&A,  CACHE_LINE_SIZE, M * N * sizeof(f32)) == 0);
+            matrix_setrand(A, M, N);
+
+            assert(posix_memalign((void **)&B,  CACHE_LINE_SIZE, N * P * sizeof(f32)) == 0);
+            matrix_setrand(B, N, P);
+
+            assert(posix_memalign((void **)&BT, CACHE_LINE_SIZE, N * P * sizeof(f32)) == 0);
+            matrix_transpose(B, BT, N, P);
+
+            assert(posix_memalign((void **)&C,  CACHE_LINE_SIZE, M * P * sizeof(f32)) == 0);
+            matrix_setzero(C, M, P);
+
+            u32 iterations;
+            if (size <= 128) {
+                iterations = 100;
+            } else if (size <= 256) {
+                iterations = 50;
+            } else {
+                iterations = 25;
+            }
+
+            f64 total_ns;
+            if (implementation.uses_transposed) {
+                total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, implementation.func);
+            } else {
+                total_ns = benchmark_matrix_mul(A, B,  C, M, N, P, iterations, implementation.func);
+            }
+
+            const f64 avg_duration_ns = total_ns        / iterations;
+            const f64 avg_duration_ms = avg_duration_ns / NS_PER_MS;
+
+            printf("  Average time: %fns (%fms)\n\n", total_ns, avg_duration_ms);
+
+            if (file != NULL) {
+                fprintf(file, "%s,%u,%f\n", implementation.name, size, avg_duration_ns);
+                fflush(file);
+            }
+        }
+    }
+}
+
+i32 main(i32 argc, const cstr *argv) {
+    cstr filename = NULL;
+    parse_args(argv, argc, &filename);
+
     srand(time(NULL));
 
-    const u32 iterations = 1000;
-    const u32 M = 257, N = 257, P = 257;
-
-    printf("M = %u, N = %u, P = %u\n", M, N, P);
-    printf("Iterations: %u\n", iterations);
-
-    f32 *A  defer(defer_free),
-        *B  defer(defer_free),
-        *BT defer(defer_free),
-        *C  defer(defer_free);
-
-    assert(posix_memalign((void **)&A,  CACHE_LINE_SIZE, M * N * sizeof(f32)) == 0);
-    matrix_setrand(A, M, N);
-
-    assert(posix_memalign((void **)&B,  CACHE_LINE_SIZE, N * P * sizeof(f32)) == 0);
-    matrix_setrand(B, N, P);
-
-    assert(posix_memalign((void **)&BT, CACHE_LINE_SIZE, N * P * sizeof(f32)) == 0);
-    matrix_transpose(B, BT, N, P);
-
-    assert(posix_memalign((void **)&C,  CACHE_LINE_SIZE, M * P * sizeof(f32)) == 0);
-    matrix_setzero(C, M, P);
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul);
-        printf("Average multiplication time (original):                  %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed);
-        printf("Average multiplication time (pre-transposed):            %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_cacheline);
-        printf("Average multiplication time (sub-matrix):                %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_cacheline);
-        printf("Average multiplication time (pre-transposed sub-matrix): %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_sse);
-        printf("Average multiplication time (sse):                       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_sse);
-        printf("Average multiplication time (sse pre-transposed):        %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, B, C, M, N, P, iterations, matrix_mul_avx);
-        printf("Average multiplication time (avx):                       %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
-
-    {
-        const f64 total_ns = benchmark_matrix_mul(A, BT, C, M, N, P, iterations, matrix_mul_transposed_avx);
-        printf("Average multiplication time (avx pre-transposed):        %fns (%fms)\n", total_ns, total_ns / NS_PER_MS);
-    }
+    benchmark_matrix_mul_impls(filename);
 
     return EXIT_SUCCESS;
 }
